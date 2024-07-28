@@ -1,1 +1,7 @@
 env
+.env
+__pycache__
+tempmeil.py
+logs
+db.sqlite3
+email_list.py
