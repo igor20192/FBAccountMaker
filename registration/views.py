@@ -57,6 +57,36 @@ def renew_tor_connection():
 
 
 def get_confirmation_code(sid_token):
+    """
+    Retrieves the confirmation code from Guerrilla Mail using the provided session ID token.
+
+    This function waits for a brief period to allow time for the email containing the confirmation code to arrive.
+    It then makes a request to the Guerrilla Mail API to check for new emails. If an email is found, the function
+    extracts the confirmation code from the email excerpt and returns it.
+
+    Args:
+        sid_token (str): The session ID token used to authenticate the request with Guerrilla Mail.
+
+    Returns:
+        str or None: The confirmation code extracted from the email, or None if no code is found or an error occurs.
+
+    Raises:
+        requests.exceptions.HTTPError: If an HTTP error occurs during the request.
+        requests.exceptions.RequestException: For general request-related errors.
+        requests.exceptions.JSONDecodeError: If there is an error decoding the JSON response.
+        KeyError: If the expected key is not found in the JSON response.
+
+    Example:
+        >>> sid_token = "your_sid_token"
+        >>> code = get_confirmation_code(sid_token)
+        >>> print(code)
+        "123456"
+
+    Logs:
+        - Logs an info message when the confirmation code is found.
+        - Logs an info message if no confirmation code is found or if no emails are found.
+        - Logs exception details for HTTP errors, request exceptions, JSON decoding errors, and key errors.
+    """
     try:
         time.sleep(25)  # We wait for some time for the letter to arrive.
 
