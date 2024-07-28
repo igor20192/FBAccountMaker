@@ -1,17 +1,17 @@
 import asyncio
 import logging
 import os
-from logging.handlers import RotatingFileHandler
 import pdb
 import time
+import random
+import requests
+from logging.handlers import RotatingFileHandler
 from django.http import JsonResponse
-import playwright
 from rest_framework.views import APIView
 from .serializers import RegisterSerializer
 from playwright.async_api import async_playwright
 from fake_useragent import UserAgent
 from faker import Faker
-import requests
 from skimage import io, transform
 from stem import Signal
 from stem.control import Controller
@@ -36,47 +36,168 @@ logger.addHandler(handler)
 
 fake = Faker()
 
+# Список рандомных локаций
+locations = [
+    {"latitude": 37.7749, "longitude": -122.4194},  # San Francisco, CA
+    {"latitude": 40.7128, "longitude": -74.0060},  # New York, NY
+    {"latitude": 51.5074, "longitude": -0.1278},  # London, UK
+    {"latitude": 48.8566, "longitude": 2.3522},  # Paris, France
+    {"latitude": 35.6895, "longitude": 139.6917},  # Tokyo, Japan
+]
+
 
 def renew_tor_connection():
     try:
         with Controller.from_port(port=9051) as controller:
-            controller.authenticate(
-                password=config("TOR_PASSWORD")
-            )  # Замените your_password на ваш фактический пароль
+            controller.authenticate(password=config("TOR_PASSWORD"))
             controller.signal(Signal.NEWNYM)
             logger.info("TOR connection renewed successfully")
     except Exception as e:
         logger.error(f"Error renewing TOR connection: {str(e)}")
 
 
-def get_confirmation_code(email_address):
-    # Эта функция должна быть изменена в соответствии с вашим способом получения почты
-    time.sleep(10)  # Ждем некоторое время, чтобы письмо пришло
-    response = requests.get(
-        f"https://www.guerrillamail.com/ajax.php?f=get_email_list&email={email_address}"
-    )
-    email_data = response.json()
-    for email in email_data["list"]:
-        if "FB-" in email["mail_subject"]:
-            email_id = email["mail_id"]
-            email_response = requests.get(
-                f"https://www.guerrillamail.com/ajax.php?f=fetch_email&email_id={email_id}"
-            )
-            email_content = email_response.json()["mail_body"]
-            confirmation_code = email_content.split("FB-")[1][:5]
-            return confirmation_code
+def get_confirmation_code(sid_token):
+    try:
+        time.sleep(25)  # Ждем некоторое время, чтобы письмо пришло
+
+        response = requests.get(
+            f"https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token={sid_token}"
+        )
+
+        response.raise_for_status()  # Проверка, что запрос завершился успешно
+
+        email_data = response.json()
+        emails = email_data.get("list")
+
+        if emails:
+            confirmation_code = emails[0].get("mail_excerpt")
+            if confirmation_code:
+                logger.info("Confirmation code found.")
+                return confirmation_code
+            else:
+                logger.info("No confirmation code found in the email excerpt.")
+                return None
+        else:
+            logger.info("No emails found.")
+            return None
+
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error occurred: {e}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request exception: {e}")
+    except requests.exceptions.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {e}")
+        logger.error(f"Response text: {response.text if response else 'No response'}")
+    except KeyError as e:
+        logger.error(f"Key error: {e}")
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+
     return None
 
 
-async def register_facebook_account(temp_email):
+async def close_cookies_banner(page):
+    try:
+        # Поиск элемента с ролью "button" и названием "Allow all cookies"
+        button = page.get_by_role("button", name="Allow all cookies")
+
+        if await button.is_visible():
+            # Получение координат и размеров элемента
+            box = await button.bounding_box()
+            if box:
+                # Имитация перемещения мыши к центру элемента
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Пауза для имитации задержки
+
+                # Имитация клика по элементу
+                await button.click()
+                logger.info("Cookies banner found and closed.")
+            else:
+                logger.info("Bounding box not found for cookies button.")
+        else:
+            logger.info("No cookies banner found.")
+    except TimeoutError as e:
+        logger.error(f"Timeout error closing cookies banner: {e}")
+    except Exception as e:
+        logger.error(f"Error closing cookies banner: {e}")
+
+
+async def get_started_button(page):
+    try:
+        # Поиск элемента с ролью "button" и названием "Get started"
+        button = page.get_by_role("button", name="Get started")
+
+        if await button.is_visible():
+            # Получение координат и размеров элемента
+            box = await button.bounding_box()
+            if box:
+                # Имитация перемещения мыши к центру элемента
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Пауза для имитации задержки
+
+                # Имитация клика по элементу
+                await button.click()
+                logger.info("Get started banner found and closed.")
+            else:
+                logger.info("Bounding box not found for Get started button.")
+        else:
+            logger.info("Get started banner not found.")
+    except TimeoutError as e:
+        logger.error(f"Timeout error closing Get started banner: {e}")
+    except Exception as e:
+        logger.error(f"Error closing Get started banner: {e}")
+
+
+async def handle_cookies_banner(page):
+    try:
+        # Поиск элемента с заголовком "Allow all cookies"
+        button_cookies = page.get_by_title("Allow all cookies")
+
+        if await button_cookies.is_visible():
+            # Получение координат и размеров элемента
+            box = await button_cookies.bounding_box()
+            if box:
+                # Имитация перемещения мыши к центру элемента
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Пауза для имитации задержки
+
+                # Имитация клика по элементу
+                await button_cookies.click()
+                logger.info("handle_cookies_banner - Cookies banner found and closed.")
+                await get_started_button(page)
+            else:
+                logger.info(
+                    "handle_cookies_banner - Bounding box not found for cookies button."
+                )
+        else:
+            logger.info("handle_cookies_banner - No cookies banner found.")
+    except TimeoutError as e:
+        logger.error(
+            f"handle_cookies_banner - Timeout error closing cookies banner: {e}"
+        )
+    except Exception as e:
+        logger.error(f"handle_cookies_banner - Error closing cookies banner: {e}")
+
+
+async def register_facebook_account(temp_email, sid_token):
     try:
         renew_tor_connection()
         user_agent = UserAgent().random
+        location = random.choice(locations)
+
         async with async_playwright() as p:
             browser = await p.firefox.launch(
-                proxy={"server": "socks5://127.0.0.1:9050"}, headless=True
+                proxy={"server": "socks5://127.0.0.1:9050"}, headless=False
             )
-            context = await browser.new_context(user_agent=user_agent)
+            context = await browser.new_context(
+                user_agent=user_agent, geolocation=location, permissions=["geolocation"]
+            )
             page = await context.new_page()
 
             logger.info(f"Opening Facebook registration page for {temp_email}")
@@ -90,27 +211,45 @@ async def register_facebook_account(temp_email):
                 await browser.close()
                 return
 
+            await page.wait_for_timeout(
+                2000
+            )  # Подождать немного после загрузки страницы
+
+            await handle_cookies_banner(page)
+            await close_cookies_banner(page)
+
             # Проверка наличия элемента
             try:
-                await page.wait_for_selector(
-                    'input[name="firstname"]', timeout=120000
-                )  # Увеличиваем таймаут до 120 секунд
-            except Exception as e:
-                logger.exception("Failed to find registration form elements")
+                await page.wait_for_selector('input[name="firstname"]', timeout=120000)
+                logger.info("Registration form loaded.")
+            except TimeoutError:
+                logger.error("Timeout while waiting for registration form.")
+                await page.screenshot(path="logs/form_load_timeout.png")
                 await browser.close()
                 return
 
-            logger.info(f"Filling the registration form for {temp_email}")
-
+            # Заполнение формы с имитацией человеческих действий
             try:
-                await page.fill(
-                    'input[name="firstname"]', fake.first_name(), timeout=120000
-                )  # Увеличиваем таймаут до 120 секунд
-                await page.fill('input[name="lastname"]', fake.last_name())
-                await page.fill('input[name="reg_email__"]', temp_email)
-                await page.fill('input[name="reg_passwd__"]', fake.password())
+                # Функция для имитации задержки и движения мыши
+                async def human_typing(page, selector, text):
+                    logger.info(text)
+                    element = await page.query_selector(selector)
+                    if element:
+                        box = await element.bounding_box()
+                        if box:
+                            await page.mouse.move(
+                                box["x"] + box["width"] / 2,
+                                box["y"] + box["height"] / 2,
+                            )
+                            await page.wait_for_timeout(random.randint(500, 1000))
+                        await page.fill(selector, text)
+                        await page.wait_for_timeout(random.randint(500, 2000))
 
-                # Заполнение полей дня, месяца и года рождения
+                await human_typing(page, 'input[name="firstname"]', fake.first_name())
+                await human_typing(page, 'input[name="lastname"]', fake.last_name())
+                await human_typing(page, 'input[name="reg_email__"]', temp_email)
+                await human_typing(page, 'input[name="reg_passwd__"]', fake.password())
+
                 birth_day = str(fake.random_int(min=1, max=28))
                 birth_month = str(fake.random_int(min=1, max=12))
                 birth_year = str(fake.random_int(min=1960, max=2000))
@@ -121,76 +260,78 @@ async def register_facebook_account(temp_email):
 
                 logger.info(f"Filled birthday: {birth_day}-{birth_month}-{birth_year}")
 
-                # Заполнение поля подтверждения email
                 logger.info("Waiting for email confirmation field to appear")
                 await page.wait_for_selector(
                     'input[name="reg_email_confirmation__"]', timeout=120000
-                )  # Увеличиваем таймаут до 120 секунд
-                await page.fill('input[name="reg_email_confirmation__"]', temp_email)
+                )
+                await human_typing(
+                    page, 'input[name="reg_email_confirmation__"]', temp_email
+                )
 
-                # Выбор пола
-                gender = fake.random_element(
-                    elements=("1", "2")
-                )  # 1: Женщина, 2: Мужчина
+                gender = fake.random_element(elements=("1", "2"))
                 await page.wait_for_selector(
                     f'input[name="sex"][value="{gender}"]', state="visible"
                 )
                 await page.check(f'input[name="sex"][value="{gender}"]')
                 logger.info(f"Gender selected: {gender}")
 
-                logger.info(f"Submitting the registration form for {temp_email}")
+                logger.info("Submitting the registration form")
                 await page.click('button[name="websubmit"]')
 
-                # Ждем некоторое время для обработки запроса
-                await page.wait_for_timeout(60000)  # ждём 60 секунд
+                await page.wait_for_timeout(60000)
 
-                # Проверяем, успешна ли регистрация и переходит ли на страницу подтверждения
                 if await page.is_visible('input[name="code"]'):
-                    logger.info(f"Waiting for confirmation code for {temp_email}")
-                    confirmation_code = get_confirmation_code(temp_email)
+                    logger.info("Waiting for confirmation code")
+                    confirmation_code = get_confirmation_code(sid_token)
 
                     if confirmation_code:
                         logger.info(f"Confirmation code received: {confirmation_code}")
-                        await page.fill('input[name="code"]', confirmation_code)
+                        await human_typing(
+                            page, 'input[name="code"]', confirmation_code
+                        )
                         await page.click('button[name="confirm"]')
 
-                        await page.wait_for_timeout(10000)  # ждём 10 секунд
+                        await page.wait_for_timeout(10000)
 
                         if await page.is_visible("selector-for-success-element"):
                             logger.info(f"Successfully registered {temp_email}")
                             await browser.close()
                             return True
                         else:
-                            logger.exception(f"Failed to register {temp_email}")
+                            logger.error(f"Failed to register {temp_email}")
                             await browser.close()
                             return False
                     else:
-                        logger.exception(
+                        logger.error(
                             f"Failed to retrieve confirmation code for {temp_email}"
                         )
                         await browser.close()
                         return False
+
+                if page.is_visible('div[aria-label="Continue"][role="button"]'):
+                    logger.info(f"Successfully registered {temp_email}")
+                    return True
+
                 else:
-                    logger.exception(f"Failed to register {temp_email}")
+                    logger.error(f"Failed to register {temp_email}")
                     await browser.close()
                     return False
 
             except Exception as e:
                 logger.exception("Error during registration")
                 try:
-                    # Делать скриншот в случае ошибки, если страница не была закрыта
                     if page and not page.is_closed():
                         screenshot_path = f"logs/screenshot_{temp_email}.png"
                         await page.screenshot(path=screenshot_path)
                         logger.error(f"Screenshot saved to {screenshot_path}")
                 except Exception as screenshot_error:
                     logger.exception("Failed to take screenshot")
-                    await browser.close()
+                await browser.close()
                 return False
 
     except Exception as e:
+        logger.exception("Unexpected error")
         try:
-            # Делать скриншот в случае ошибки, если страница не была закрыта
             if page and not page.is_closed():
                 screenshot_path = f"logs/screenshot_{temp_email}.png"
                 await page.screenshot(path=screenshot_path)
@@ -202,18 +343,19 @@ async def register_facebook_account(temp_email):
 
 def get_temp_email():
     try:
-        # Запрос создания нового временного адреса электронной почты
         response = requests.get(
             "https://api.guerrillamail.com/ajax.php?f=get_email_address"
         )
         response.raise_for_status()
 
-        # Получение адреса электронной почты из ответа
         email_data = response.json()
         if "email_addr" in email_data:
             temp_email = email_data["email_addr"]
-            logger.info(f"Obtained temporary email: {temp_email}")
-            return temp_email
+            sid_token = email_data["sid_token"]
+            logger.info(
+                f"Obtained temporary email: {temp_email} sid_token: {sid_token}"
+            )
+            return temp_email, sid_token
         else:
             logger.error("Failed to obtain temporary email.")
             return None
@@ -245,10 +387,15 @@ class RegisterView(APIView):
             results = []
 
             for _ in range(num_accounts):
-                temp_email = get_temp_email()
-                if temp_email:
-                    asyncio.run(register_facebook_account(temp_email))
-                    results.append({"email": temp_email, "status": "registered"})
+                temp_email, sid_token = get_temp_email()
+                if temp_email and sid_token:
+                    success = asyncio.run(
+                        register_facebook_account(temp_email, sid_token)
+                    )
+                    if success:
+                        results.append({"email": temp_email, "status": "registered"})
+                    else:
+                        results.append({"email": temp_email, "status": "failed"})
                 else:
                     results.append({"email": None, "status": "failed"})
 
