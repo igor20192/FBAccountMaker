@@ -19,7 +19,7 @@ from decouple import config
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import BasicAuthentication
 
-# Настройка логирования
+# Setting up logging
 if not os.path.exists("logs"):
     os.makedirs("logs")
 
@@ -36,7 +36,7 @@ logger.addHandler(handler)
 
 fake = Faker()
 
-# Список рандомных локаций
+# List of random locations
 locations = [
     {"latitude": 37.7749, "longitude": -122.4194},  # San Francisco, CA
     {"latitude": 40.7128, "longitude": -74.0060},  # New York, NY
@@ -53,18 +53,18 @@ def renew_tor_connection():
             controller.signal(Signal.NEWNYM)
             logger.info("TOR connection renewed successfully")
     except Exception as e:
-        logger.error(f"Error renewing TOR connection: {str(e)}")
+        logger.exception(f"Error renewing TOR connection: {str(e)}")
 
 
 def get_confirmation_code(sid_token):
     try:
-        time.sleep(25)  # Ждем некоторое время, чтобы письмо пришло
+        time.sleep(25)  # We wait for some time for the letter to arrive.
 
         response = requests.get(
             f"https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token={sid_token}"
         )
 
-        response.raise_for_status()  # Проверка, что запрос завершился успешно
+        response.raise_for_status()  # Checking that the request completed successfully
 
         email_data = response.json()
         emails = email_data.get("list")
@@ -82,36 +82,54 @@ def get_confirmation_code(sid_token):
             return None
 
     except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP error occurred: {e}")
+        logger.exception(f"HTTP error occurred: {e}")
     except requests.exceptions.RequestException as e:
-        logger.error(f"Request exception: {e}")
+        logger.exception(f"Request exception: {e}")
     except requests.exceptions.JSONDecodeError as e:
-        logger.error(f"JSON decode error: {e}")
-        logger.error(f"Response text: {response.text if response else 'No response'}")
+        logger.exception(f"JSON decode error: {e}")
+        logger.exception(
+            f"Response text: {response.text if response else 'No response'}"
+        )
     except KeyError as e:
-        logger.error(f"Key error: {e}")
+        logger.exception(f"Key error: {e}")
     except Exception as e:
-        logger.error(f"An error occurred: {e}")
+        logger.exception(f"An error occurred: {e}")
 
     return None
 
 
 async def close_cookies_banner(page):
+    """
+    Close the cookies banner on the page if it is visible.
+
+    This function attempts to locate and click the "Allow all cookies" button on a web page.
+    It simulates human-like mouse movements and adds a small delay before clicking the button.
+
+    Args:
+        page (playwright.async_api.Page): The Playwright page object.
+
+    Returns:
+        None
+
+    Raises:
+        TimeoutError: If there is a timeout while trying to close the cookies banner.
+        Exception: If any other error occurs during the process.
+    """
     try:
-        # Поиск элемента с ролью "button" и названием "Allow all cookies"
+        # Search for the element with role "button" and name "Allow all cookies"
         button = page.get_by_role("button", name="Allow all cookies")
 
         if await button.is_visible():
-            # Получение координат и размеров элемента
+            # Get the coordinates and dimensions of the element
             box = await button.bounding_box()
             if box:
-                # Имитация перемещения мыши к центру элемента
+                # Simulate moving the mouse to the center of the element
                 await page.mouse.move(
                     box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
                 )
-                await page.wait_for_timeout(500)  # Пауза для имитации задержки
+                await page.wait_for_timeout(500)  # Pause to simulate delay
 
-                # Имитация клика по элементу
+                # Simulate clicking the element
                 await button.click()
                 logger.info("Cookies banner found and closed.")
             else:
@@ -119,27 +137,43 @@ async def close_cookies_banner(page):
         else:
             logger.info("No cookies banner found.")
     except TimeoutError as e:
-        logger.error(f"Timeout error closing cookies banner: {e}")
+        logger.exception(f"Timeout error closing cookies banner: {e}")
     except Exception as e:
-        logger.error(f"Error closing cookies banner: {e}")
+        logger.exception(f"Error closing cookies banner: {e}")
 
 
 async def get_started_button(page):
+    """
+    Close the 'Get started' banner on the page if it is visible.
+
+    This function attempts to locate and click the "Get started" button on a web page.
+    It simulates human-like mouse movements and adds a small delay before clicking the button.
+
+    Args:
+        page (playwright.async_api.Page): The Playwright page object.
+
+    Returns:
+        None
+
+    Raises:
+        TimeoutError: If there is a timeout while trying to close the 'Get started' banner.
+        Exception: If any other error occurs during the process.
+    """
     try:
-        # Поиск элемента с ролью "button" и названием "Get started"
+        # Search for the element with role "button" and name "Get started"
         button = page.get_by_role("button", name="Get started")
 
         if await button.is_visible():
-            # Получение координат и размеров элемента
+            # Get the coordinates and dimensions of the element
             box = await button.bounding_box()
             if box:
-                # Имитация перемещения мыши к центру элемента
+                # Simulate moving the mouse to the center of the element
                 await page.mouse.move(
                     box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
                 )
-                await page.wait_for_timeout(500)  # Пауза для имитации задержки
+                await page.wait_for_timeout(500)  # Pause to simulate delay
 
-                # Имитация клика по элементу
+                # Simulate clicking the element
                 await button.click()
                 logger.info("Get started banner found and closed.")
             else:
@@ -147,27 +181,44 @@ async def get_started_button(page):
         else:
             logger.info("Get started banner not found.")
     except TimeoutError as e:
-        logger.error(f"Timeout error closing Get started banner: {e}")
+        logger.exception(f"Timeout error closing Get started banner: {e}")
     except Exception as e:
-        logger.error(f"Error closing Get started banner: {e}")
+        logger.exception(f"Error closing Get started banner: {e}")
 
 
 async def handle_cookies_banner(page):
+    """
+    Close the cookies banner on the page if it is visible.
+
+    This function attempts to locate and click the "Allow all cookies" button on a web page.
+    It simulates human-like mouse movements and adds a small delay before clicking the button.
+    After closing the cookies banner, it attempts to close the "Get started" banner if present.
+
+    Args:
+        page (playwright.async_api.Page): The Playwright page object.
+
+    Returns:
+        None
+
+    Raises:
+        TimeoutError: If there is a timeout while trying to close the cookies banner.
+        Exception: If any other error occurs during the process.
+    """
     try:
-        # Поиск элемента с заголовком "Allow all cookies"
+        # Search for the element with the title "Allow all cookies"
         button_cookies = page.get_by_title("Allow all cookies")
 
         if await button_cookies.is_visible():
-            # Получение координат и размеров элемента
+            # Get the coordinates and dimensions of the element
             box = await button_cookies.bounding_box()
             if box:
-                # Имитация перемещения мыши к центру элемента
+                # Simulate moving the mouse to the center of the element
                 await page.mouse.move(
                     box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
                 )
-                await page.wait_for_timeout(500)  # Пауза для имитации задержки
+                await page.wait_for_timeout(500)  # Pause to simulate delay
 
-                # Имитация клика по элементу
+                # Simulate clicking the element
                 await button_cookies.click()
                 logger.info("handle_cookies_banner - Cookies banner found and closed.")
                 await get_started_button(page)
@@ -178,14 +229,36 @@ async def handle_cookies_banner(page):
         else:
             logger.info("handle_cookies_banner - No cookies banner found.")
     except TimeoutError as e:
-        logger.error(
+        logger.exception(
             f"handle_cookies_banner - Timeout error closing cookies banner: {e}"
         )
     except Exception as e:
-        logger.error(f"handle_cookies_banner - Error closing cookies banner: {e}")
+        logger.exception(f"handle_cookies_banner - Error closing cookies banner: {e}")
 
 
 async def register_facebook_account(temp_email, sid_token):
+    """
+    Register a new Facebook account using a temporary email and SID token.
+
+    This function automates the process of registering a new Facebook account by:
+    - Renewing the Tor connection to ensure anonymity.
+    - Generating a random user agent and geolocation.
+    - Launching a Firefox browser instance via Playwright with Tor proxy.
+    - Handling cookies and "Get started" banners.
+    - Filling out the registration form with human-like interactions.
+    - Submitting the registration form and handling email confirmation.
+
+    Args:
+        temp_email (str): The temporary email address used for registration.
+        sid_token (str): The SID token for retrieving the email confirmation code.
+
+    Returns:
+        bool: True if registration is successful, False otherwise.
+
+    Raises:
+        TimeoutError: If there is a timeout while waiting for the registration form or email confirmation field.
+        Exception: If any other error occurs during the registration process.
+    """
     try:
         renew_tor_connection()
         user_agent = UserAgent().random
@@ -211,26 +284,24 @@ async def register_facebook_account(temp_email, sid_token):
                 await browser.close()
                 return
 
-            await page.wait_for_timeout(
-                2000
-            )  # Подождать немного после загрузки страницы
+            await page.wait_for_timeout(2000)  # Wait a bit after the page loads
 
             await handle_cookies_banner(page)
             await close_cookies_banner(page)
 
-            # Проверка наличия элемента
+            # Check for the presence of the registration form
             try:
                 await page.wait_for_selector('input[name="firstname"]', timeout=120000)
                 logger.info("Registration form loaded.")
             except TimeoutError:
-                logger.error("Timeout while waiting for registration form.")
+                logger.exception("Timeout while waiting for registration form.")
                 await page.screenshot(path="logs/form_load_timeout.png")
                 await browser.close()
                 return
 
-            # Заполнение формы с имитацией человеческих действий
+            # Fill out the form with human-like actions
             try:
-                # Функция для имитации задержки и движения мыши
+                # Function to simulate typing delay and mouse movement
                 async def human_typing(page, selector, text):
                     logger.info(text)
                     element = await page.query_selector(selector)
@@ -298,11 +369,11 @@ async def register_facebook_account(temp_email, sid_token):
                             await browser.close()
                             return True
                         else:
-                            logger.error(f"Failed to register {temp_email}")
+                            logger.exception(f"Failed to register {temp_email}")
                             await browser.close()
                             return False
                     else:
-                        logger.error(
+                        logger.exception(
                             f"Failed to retrieve confirmation code for {temp_email}"
                         )
                         await browser.close()
@@ -313,7 +384,7 @@ async def register_facebook_account(temp_email, sid_token):
                     return True
 
                 else:
-                    logger.error(f"Failed to register {temp_email}")
+                    logger.exception(f"Failed to register {temp_email}")
                     await browser.close()
                     return False
 
@@ -323,7 +394,7 @@ async def register_facebook_account(temp_email, sid_token):
                     if page and not page.is_closed():
                         screenshot_path = f"logs/screenshot_{temp_email}.png"
                         await page.screenshot(path=screenshot_path)
-                        logger.error(f"Screenshot saved to {screenshot_path}")
+                        logger.exception(f"Screenshot saved to {screenshot_path}")
                 except Exception as screenshot_error:
                     logger.exception("Failed to take screenshot")
                 await browser.close()
@@ -335,13 +406,26 @@ async def register_facebook_account(temp_email, sid_token):
             if page and not page.is_closed():
                 screenshot_path = f"logs/screenshot_{temp_email}.png"
                 await page.screenshot(path=screenshot_path)
-                logger.error(f"Screenshot saved to {screenshot_path}")
+                logger.exception(f"Screenshot saved to {screenshot_path}")
         except Exception as screenshot_error:
             logger.exception("Failed to take screenshot")
         return False
 
 
 def get_temp_email():
+    """
+    Obtain a temporary email address and its corresponding SID token.
+
+    This function sends a request to the Guerrilla Mail API to get a temporary email address.
+    It extracts and returns the email address and SID token if successful.
+
+    Returns:
+        tuple: A tuple containing the temporary email address (str) and SID token (str),
+               or None if the request fails or the email data is not available.
+
+    Raises:
+        requests.RequestException: If there is an issue with the HTTP request.
+    """
     try:
         response = requests.get(
             "https://api.guerrillamail.com/ajax.php?f=get_email_address"
@@ -357,14 +441,29 @@ def get_temp_email():
             )
             return temp_email, sid_token
         else:
-            logger.error("Failed to obtain temporary email.")
+            logger.exception("Failed to obtain temporary email.")
             return None
     except requests.RequestException as e:
-        logger.error(f"Error obtaining temporary email: {str(e)}")
+        logger.exception(f"Error obtaining temporary email: {str(e)}")
         return None
 
 
 def modify_image(image_url):
+    """
+    Fetch and modify an image from a given URL.
+
+    This function fetches an image from the specified URL, resizes it to 256x256 pixels,
+    and returns the modified image. If an error occurs, it logs the error and returns None.
+
+    Args:
+        image_url (str): The URL of the image to be fetched and modified.
+
+    Returns:
+        numpy.ndarray: The modified image as a numpy array, or None if an error occurs.
+
+    Raises:
+        Exception: If there is an error in fetching or modifying the image.
+    """
     try:
         logger.info(f"Fetching image from {image_url}")
         image = io.imread(image_url)
@@ -372,11 +471,48 @@ def modify_image(image_url):
         modified_image = transform.resize(image, (256, 256))
         return modified_image
     except Exception as e:
-        logger.error(f"Error modifying image: {str(e)}")
+        logger.exception(f"Error modifying image: {str(e)}")
         return None
 
 
 class RegisterView(APIView):
+    """
+    API endpoint for registering multiple Facebook accounts using temporary emails.
+
+    This view handles POST requests to register the specified number of Facebook accounts
+    using temporary email addresses. The number of accounts to be registered is provided
+    in the request data.
+
+    Authentication and Permissions:
+        - Requires basic authentication.
+        - Only authenticated users are allowed to access this endpoint.
+
+    Methods:
+        post(request): Handles POST requests to register multiple Facebook accounts.
+
+    Args:
+        request (HttpRequest): The request object containing the data for registration.
+
+    Returns:
+        JsonResponse: A JSON response containing the results of the registration attempts.
+            - If the input data is valid, the response is a list of dictionaries, each containing
+              the temporary email and the registration status ("registered" or "failed").
+            - If the input data is invalid, the response contains an error message with a 400 status code.
+
+    Usage:
+        Send a POST request to this endpoint with the following JSON payload:
+        {
+            "num_accounts": <number_of_accounts_to_register>
+        }
+
+    Example Response:
+        [
+            {"email": "example1@mail.com", "status": "registered"},
+            {"email": "example2@mail.com", "status": "failed"},
+            ...
+        ]
+    """
+
     authentication_classes = [BasicAuthentication]
     permission_classes = [IsAuthenticated]
 
