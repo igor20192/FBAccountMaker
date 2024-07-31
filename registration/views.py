@@ -174,239 +174,152 @@ async def close_cookies_banner(page):
         logger.exception(f"Error closing cookies banner: {e}")
 
 
-async def register_facebook_account_v2(page, browser, temp_email, sid_token):
-    try:
-        await page.wait_for_selector('input[aria-label="First name"]', timeout=120000)
-        logger.info("Registration form loaded. First name input found.")
-    except TimeoutError:
-        logger.exception("Timeout while waiting for registration form.")
-        await page.screenshot(path="logs/form_load_timeout.png")
-        await browser.close()
-        return
+async def click_button(page, button, name):
+    """Clicks a button and logs the action, returning False if the button is not visible."""
+    if await button.is_visible():
+        box = await button.bounding_box()
+        if box:
+            await page.mouse.move(
+                box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            )
+            await page.wait_for_timeout(500)  # Pause to simulate delay
+            await button.click()
+            logger.info(f"Clicked on button {name}.")
+            return True
+    logger.info(f"Button {name} not found or not visible.")
+    return False
 
-    try:
 
-        async def human_typing(page, selector, text):
-            logger.info(text)
+async def handle_error(page, temp_email):
+    """Handles errors during registration and takes a screenshot."""
+    try:
+        if page and not page.is_closed():
+            screenshot_path = f"logs/screenshot_{temp_email}.png"
+            await page.screenshot(path=screenshot_path)
+            logger.exception(f"Screenshot saved to {screenshot_path}")
+    except Exception as screenshot_error:
+        logger.exception("Failed to take screenshot")
+
+
+async def register_facebook_account_v2(page, browser, temp_email, sid_token) -> bool:
+    """
+    Registers a Facebook account using the provided page and browser instances.
+
+    This asynchronous function fills out the Facebook registration form using
+    randomly generated names, a date of birth, gender, email, and password.
+    It simulates human-like interactions such as typing and mouse movements.
+
+    Args:
+        page (Page): The Playwright page instance to interact with.
+        browser (Browser): The Playwright browser instance to close if needed.
+        temp_email (str): The temporary email address to use for registration.
+        sid_token (str): The session ID token (not used in the current implementation).
+
+    Returns:
+        bool: True if the registration was successful, False otherwise.
+    """
+    try:
+        try:
+            await page.wait_for_selector(
+                'input[aria-label="First name"]', timeout=120000
+            )
+            logger.info("Registration form loaded. First name input found.")
+        except TimeoutError:
+            logger.exception("Timeout while waiting for registration form.")
+            await page.screenshot(path="logs/form_load_timeout.png")
+            await browser.close()
+            return False
+
+        async def human_typing(selector: str, text: str):
+            """Simulates human-like typing into a specified input field."""
+            logger.info(f"Typing text: {text} into {selector}")
             element = await page.query_selector(selector)
             if element:
                 box = await element.bounding_box()
                 if box:
                     await page.mouse.move(
-                        box["x"] + box["width"] / 2,
-                        box["y"] + box["height"] / 2,
+                        box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
                     )
                     await page.wait_for_timeout(random.randint(500, 1000))
                 await page.fill(selector, text)
                 await page.wait_for_timeout(random.randint(500, 2000))
 
-        await human_typing(page, 'input[aria-label="First name"]', fake.first_name())
-        await human_typing(page, 'input[aria-label="Last name"]', fake.last_name())
+        await human_typing('input[aria-label="First name"]', fake.first_name())
+        await human_typing('input[aria-label="Last name"]', fake.last_name())
 
-        button = page.get_by_role("button", name="Next")
+        next_button = page.get_by_role("button", name="Next")
+        if await click_button(page, next_button, "Next"):
+            await page.wait_for_timeout(60000)  # Wait for the next page to load
 
-        if await button.is_visible():
-            box = await button.bounding_box()
-            if box:
-                # Simulate moving the mouse to the center of the element
-                await page.mouse.move(
-                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                )
-                await page.wait_for_timeout(500)  # Pause to simulate delay
+            # Fill in the date of birth
+            birth_date = fake.date_of_birth(minimum_age=18, maximum_age=100)
+            birth_date_str = birth_date.strftime("%Y-%m-%d")
+            await page.fill('input[type="date"]', birth_date_str)
+            logger.info(f"Filled date of birth: {birth_date_str}")
 
-                # Simulate clicking the element
-                await button.click()
-                logger.info("Сlick on the next button")
-            else:
-                logger.info("Bounding box not found for Next button.")
-                return False
-        else:
-            logger.info("No Next button found.")
-            return False
+            if await click_button(page, next_button, "Next"):
+                await page.wait_for_timeout(30000)  # Wait for the next page to load
 
-        await page.wait_for_timeout(60000)
+                # Select gender
+                gender = random.choice(["Female", "Male"])
+                await page.click(f'div[role="radio"][aria-label="{gender}"]')
+                logger.info(f"Selected gender: {gender}")
 
-        # Generate a random birth date
-        birth_date = fake.date_of_birth(minimum_age=18, maximum_age=100)
-        birth_date_str = birth_date.strftime("%Y-%m-%d")
+                if await click_button(page, next_button, "Next"):
+                    await page.wait_for_timeout(10000)  # Wait for the next page to load
 
-        await page.fill('input[type="date"]', birth_date_str)
-        logger.info(f"Filled date of birth: {birth_date_str}")
-
-        if await button.is_visible():
-            box = await button.bounding_box()
-            if box:
-                # Simulate moving the mouse to the center of the element
-                await page.mouse.move(
-                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                )
-            await page.wait_for_timeout(500)  # Pause to simulate delay
-
-            # Simulate clicking the element
-            await button.click()
-            logger.info("Сlick on the next button")
-        else:
-            logger.info("No Next button found.2")
-            return False
-
-        await page.wait_for_timeout(30000)
-
-        # Randomly select gender
-        gender = random.choice(["Female", "Male"])
-        await page.click(f'div[role="radio"][aria-label="{gender}"]')
-        logger.info(f"Selected gender: {gender}")
-        # Click the "Next" button
-
-        if await button.is_visible():
-            box = await button.bounding_box()
-            if box:
-                # Simulate moving the mouse to the center of the element
-                await page.mouse.move(
-                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                )
-                await page.wait_for_timeout(500)  # Pause to simulate delay
-
-                # Simulate clicking the element
-                await button.click()
-                logger.info("Сlick on the next button")
-            else:
-                logger.info("Bounding box not found for Next button.")
-                return False
-
-        await page.wait_for_timeout(10000)
-
-        button_sing_email = page.get_by_role("button", name="Sign up with email")
-        if await button_sing_email.is_visible():
-            logger.info("Sign up with email button found")
-            box = await button_sing_email.bounding_box()
-            if box:
-                # Simulate moving the mouse to the center of the element
-                await page.mouse.move(
-                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                )
-                await page.wait_for_timeout(500)  # Pause to simulate delay
-
-                # Simulate clicking the element
-                await button_sing_email.click()
-                logger.info("Сlick on the next button_sing_email")
-            else:
-                logger.info("Bounding box not found for Sign up with email button.")
-                return False
-
-        # Find the email input element and fill it
-        email_input = await page.wait_for_selector(
-            'input[aria-label="Email"]', timeout=10000
-        )
-        if email_input:
-            await email_input.fill(temp_email)
-            logger.info(f"Filled email: {temp_email}")
-            if await button.is_visible():
-                box = await button.bounding_box()
-                if box:
-                    # Simulate moving the mouse to the center of the element
-                    await page.mouse.move(
-                        box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                    # Sign up with email
+                    sign_up_email_button = page.get_by_role(
+                        "button", name="Sign up with email"
                     )
-                    await page.wait_for_timeout(500)  # Pause to simulate delay
-
-                    # Simulate clicking the element
-                    await button.click()
-                    logger.info("Сlick on the next button")
-            else:
-                logger.info("Bounding box not found for Next button.")
-                return False
-        else:
-            logger.info("element email_input not found")
-
-        # Find the password input element and fill it
-        try:
-            await page.wait_for_selector('input[aria-label="Password"]', timeout=20000)
-            logger.info("Element password_input found")
-
-        except TimeoutError:
-            logger.exception("Timeout while waiting for password_input.")
-            await page.screenshot(path="logs/form_load_timeout.png")
-            await browser.close()
-            return
-        await human_typing(page, 'input[aria-label="Password"]', fake.password())
-        if await button.is_visible():
-            box = await button.bounding_box()
-            if box:
-                # Simulate moving the mouse to the center of the element
-                await page.mouse.move(
-                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                )
-                await page.wait_for_timeout(500)  # Pause to simulate delay
-
-                # Simulate clicking the element
-                await button.click()
-                logger.info("Сlick on the next button")
-        else:
-            logger.info("Bounding box not found for Next button.")
-            return False
-        # Find the button called Save
-        try:
-            button_save = await page.wait_for_selector(
-                'div[role="button"][aria-label="Save"]'
-            )
-            logger.info("Element button Save found")
-        except TimeoutError:
-            logger.exception("Timeout while waiting for button Save.")
-            await page.screenshot(path="logs/form_load_timeout.png")
-            await browser.close()
-            return
-
-        if await button_save.is_visible():
-            box = await button_save.bounding_box()
-            if box:
-                # Simulate moving the mouse to the center of the element
-                await page.mouse.move(
-                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                )
-                await page.wait_for_timeout(500)  # Pause to simulate delay
-
-                # Simulate clicking the element
-                await button_save.click()
-                logger.info("Сlick on the Save button")
-            # logger.info(f"Registration successful {temp_email}.")
-        try:
-            button_agree = await page.wait_for_selector(
-                'div[role="button"][aria-label="I agree"]'
-            )
-            logger.info("Element button Save found")
-        except TimeoutError:
-            logger.exception("Timeout while waiting for button I agree.")
-            await page.screenshot(path="logs/form_load_timeout.png")
-            await browser.close()
-            return
-
-        if await button_agree.is_visible():
-            box = await button_agree.bounding_box()
-            if box:
-                # Simulate moving the mouse to the center of the element
-                await page.mouse.move(
-                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                )
-                await page.wait_for_timeout(500)  # Pause to simulate delay
-
-                # Simulate clicking the element
-                await button_agree.click()
-                logger.info("Сlick on the I agree button")
-                logger.info(f"Registration successful {temp_email}.")
-
-                return True
+                    if await click_button(
+                        page, sign_up_email_button, "Sign up with email"
+                    ):
+                        # Fill in the email
+                        email_input = await page.wait_for_selector(
+                            'input[aria-label="Email"]', timeout=10000
+                        )
+                        if email_input:
+                            await email_input.fill(temp_email)
+                            logger.info(f"Filled email: {temp_email}")
+                            if await click_button(page, next_button, "Next"):
+                                # Fill in the password
+                                await page.wait_for_selector(
+                                    'input[aria-label="Password"]', timeout=20000
+                                )
+                                logger.info("Password input found")
+                                await human_typing(
+                                    'input[aria-label="Password"]', fake.password()
+                                )
+                                if await click_button(page, next_button, "Next"):
+                                    # Click the Save button
+                                    if await click_button(
+                                        page,
+                                        await page.wait_for_selector(
+                                            'div[role="button"][aria-label="Save"]'
+                                        ),
+                                        "Save",
+                                    ):
+                                        # Click the I agree button
+                                        if await click_button(
+                                            page,
+                                            await page.wait_for_selector(
+                                                'div[role="button"][aria-label="I agree"]'
+                                            ),
+                                            "I agree",
+                                        ):
+                                            logger.info(
+                                                f"Registration successful for {temp_email}."
+                                            )
+                                            await browser.close()
+                                            return True
 
     except Exception as e:
         logger.exception("Error during registration")
-        try:
-            if page and not page.is_closed():
-                screenshot_path = f"logs/screenshot_{temp_email}.png"
-                await page.screenshot(path=screenshot_path)
-                logger.exception(f"Screenshot saved to {screenshot_path}")
-        except Exception as screenshot_error:
-            logger.exception("Failed to take screenshot")
+        await handle_error(page, browser, temp_email)
+
         await browser.close()
-        return False
+    return False
 
 
 async def get_started_button(page, browser, temp_email, sid_token):
@@ -658,6 +571,7 @@ async def register_facebook_account(temp_email, sid_token):
 
                 if await page.is_visible('div[aria-label="Continue"][role="button"]'):
                     logger.info(f"Successfully registered {temp_email}")
+                    await browser.close()
                     return True
 
                 else:
