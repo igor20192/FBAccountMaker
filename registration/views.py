@@ -4,6 +4,7 @@ import os
 import pdb
 import time
 import random
+import re
 import requests
 from logging.handlers import RotatingFileHandler
 from django.http import JsonResponse
@@ -100,8 +101,9 @@ def get_confirmation_code(sid_token):
         emails = email_data.get("list")
 
         if emails:
-            confirmation_code = emails[0].get("mail_excerpt")
-            if confirmation_code:
+            confirmation_message = emails[0].get("mail_subject")
+            if confirmation_message:
+                confirmation_code = re.search(r"\d+", confirmation_message).group()
                 logger.info("Confirmation code found.")
                 return confirmation_code
             else:
@@ -172,7 +174,242 @@ async def close_cookies_banner(page):
         logger.exception(f"Error closing cookies banner: {e}")
 
 
-async def get_started_button(page):
+async def register_facebook_account_v2(page, browser, temp_email, sid_token):
+    try:
+        await page.wait_for_selector('input[aria-label="First name"]', timeout=120000)
+        logger.info("Registration form loaded. First name input found.")
+    except TimeoutError:
+        logger.exception("Timeout while waiting for registration form.")
+        await page.screenshot(path="logs/form_load_timeout.png")
+        await browser.close()
+        return
+
+    try:
+
+        async def human_typing(page, selector, text):
+            logger.info(text)
+            element = await page.query_selector(selector)
+            if element:
+                box = await element.bounding_box()
+                if box:
+                    await page.mouse.move(
+                        box["x"] + box["width"] / 2,
+                        box["y"] + box["height"] / 2,
+                    )
+                    await page.wait_for_timeout(random.randint(500, 1000))
+                await page.fill(selector, text)
+                await page.wait_for_timeout(random.randint(500, 2000))
+
+        await human_typing(page, 'input[aria-label="First name"]', fake.first_name())
+        await human_typing(page, 'input[aria-label="Last name"]', fake.last_name())
+
+        button = page.get_by_role("button", name="Next")
+
+        if await button.is_visible():
+            box = await button.bounding_box()
+            if box:
+                # Simulate moving the mouse to the center of the element
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Pause to simulate delay
+
+                # Simulate clicking the element
+                await button.click()
+                logger.info("Сlick on the next button")
+            else:
+                logger.info("Bounding box not found for Next button.")
+                return False
+        else:
+            logger.info("No Next button found.")
+            return False
+
+        await page.wait_for_timeout(60000)
+
+        # Generate a random birth date
+        birth_date = fake.date_of_birth(minimum_age=18, maximum_age=100)
+        birth_date_str = birth_date.strftime("%Y-%m-%d")
+
+        await page.fill('input[type="date"]', birth_date_str)
+        logger.info(f"Filled date of birth: {birth_date_str}")
+
+        if await button.is_visible():
+            box = await button.bounding_box()
+            if box:
+                # Simulate moving the mouse to the center of the element
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+            await page.wait_for_timeout(500)  # Pause to simulate delay
+
+            # Simulate clicking the element
+            await button.click()
+            logger.info("Сlick on the next button")
+        else:
+            logger.info("No Next button found.2")
+            return False
+
+        await page.wait_for_timeout(30000)
+
+        # Randomly select gender
+        gender = random.choice(["Female", "Male"])
+        await page.click(f'div[role="radio"][aria-label="{gender}"]')
+        logger.info(f"Selected gender: {gender}")
+        # Click the "Next" button
+
+        if await button.is_visible():
+            box = await button.bounding_box()
+            if box:
+                # Simulate moving the mouse to the center of the element
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Pause to simulate delay
+
+                # Simulate clicking the element
+                await button.click()
+                logger.info("Сlick on the next button")
+            else:
+                logger.info("Bounding box not found for Next button.")
+                return False
+
+        await page.wait_for_timeout(10000)
+
+        button_sing_email = page.get_by_role("button", name="Sign up with email")
+        if await button_sing_email.is_visible():
+            logger.info("Sign up with email button found")
+            box = await button_sing_email.bounding_box()
+            if box:
+                # Simulate moving the mouse to the center of the element
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Pause to simulate delay
+
+                # Simulate clicking the element
+                await button_sing_email.click()
+                logger.info("Сlick on the next button_sing_email")
+            else:
+                logger.info("Bounding box not found for Sign up with email button.")
+                return False
+
+        # Find the email input element and fill it
+        email_input = await page.wait_for_selector(
+            'input[aria-label="Email"]', timeout=10000
+        )
+        if email_input:
+            await email_input.fill(temp_email)
+            logger.info(f"Filled email: {temp_email}")
+            if await button.is_visible():
+                box = await button.bounding_box()
+                if box:
+                    # Simulate moving the mouse to the center of the element
+                    await page.mouse.move(
+                        box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                    )
+                    await page.wait_for_timeout(500)  # Pause to simulate delay
+
+                    # Simulate clicking the element
+                    await button.click()
+                    logger.info("Сlick on the next button")
+            else:
+                logger.info("Bounding box not found for Next button.")
+                return False
+        else:
+            logger.info("element email_input not found")
+
+        # Find the password input element and fill it
+        try:
+            await page.wait_for_selector('input[aria-label="Password"]', timeout=20000)
+            logger.info("Element password_input found")
+
+        except TimeoutError:
+            logger.exception("Timeout while waiting for password_input.")
+            await page.screenshot(path="logs/form_load_timeout.png")
+            await browser.close()
+            return
+        await human_typing(page, 'input[aria-label="Password"]', fake.password())
+        if await button.is_visible():
+            box = await button.bounding_box()
+            if box:
+                # Simulate moving the mouse to the center of the element
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Pause to simulate delay
+
+                # Simulate clicking the element
+                await button.click()
+                logger.info("Сlick on the next button")
+        else:
+            logger.info("Bounding box not found for Next button.")
+            return False
+        # Find the button called Save
+        try:
+            button_save = await page.wait_for_selector(
+                'div[role="button"][aria-label="Save"]'
+            )
+            logger.info("Element button Save found")
+        except TimeoutError:
+            logger.exception("Timeout while waiting for button Save.")
+            await page.screenshot(path="logs/form_load_timeout.png")
+            await browser.close()
+            return
+
+        if await button_save.is_visible():
+            box = await button_save.bounding_box()
+            if box:
+                # Simulate moving the mouse to the center of the element
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Pause to simulate delay
+
+                # Simulate clicking the element
+                await button_save.click()
+                logger.info("Сlick on the Save button")
+            # logger.info(f"Registration successful {temp_email}.")
+        try:
+            button_agree = await page.wait_for_selector(
+                'div[role="button"][aria-label="I agree"]'
+            )
+            logger.info("Element button Save found")
+        except TimeoutError:
+            logger.exception("Timeout while waiting for button I agree.")
+            await page.screenshot(path="logs/form_load_timeout.png")
+            await browser.close()
+            return
+
+        if await button_agree.is_visible():
+            box = await button_agree.bounding_box()
+            if box:
+                # Simulate moving the mouse to the center of the element
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                await page.wait_for_timeout(500)  # Pause to simulate delay
+
+                # Simulate clicking the element
+                await button_agree.click()
+                logger.info("Сlick on the I agree button")
+                logger.info(f"Registration successful {temp_email}.")
+
+                return True
+
+    except Exception as e:
+        logger.exception("Error during registration")
+        try:
+            if page and not page.is_closed():
+                screenshot_path = f"logs/screenshot_{temp_email}.png"
+                await page.screenshot(path=screenshot_path)
+                logger.exception(f"Screenshot saved to {screenshot_path}")
+        except Exception as screenshot_error:
+            logger.exception("Failed to take screenshot")
+        await browser.close()
+        return False
+
+
+async def get_started_button(page, browser, temp_email, sid_token):
     """
     Close the 'Get started' banner on the page if it is visible.
 
@@ -206,6 +443,7 @@ async def get_started_button(page):
                 # Simulate clicking the element
                 await button.click()
                 logger.info("Get started banner found and closed.")
+                await register_facebook_account_v2(page, browser, temp_email, sid_token)
             else:
                 logger.info("Bounding box not found for Get started button.")
         else:
@@ -216,7 +454,7 @@ async def get_started_button(page):
         logger.exception(f"Error closing Get started banner: {e}")
 
 
-async def handle_cookies_banner(page):
+async def handle_cookies_banner(page, browser, temp_email, sid_token):
     """
     Close the cookies banner on the page if it is visible.
 
@@ -251,7 +489,7 @@ async def handle_cookies_banner(page):
                 # Simulate clicking the element
                 await button_cookies.click()
                 logger.info("handle_cookies_banner - Cookies banner found and closed.")
-                await get_started_button(page)
+                await get_started_button(page, browser, temp_email, sid_token)
             else:
                 logger.info(
                     "handle_cookies_banner - Bounding box not found for cookies button."
@@ -314,9 +552,9 @@ async def register_facebook_account(temp_email, sid_token):
                 await browser.close()
                 return
 
-            await page.wait_for_timeout(2000)  # Wait a bit after the page loads
+            await page.wait_for_timeout(5000)  # Wait a bit after the page loads
 
-            await handle_cookies_banner(page)
+            await handle_cookies_banner(page, browser, temp_email, sid_token)
             await close_cookies_banner(page)
 
             # Check for the presence of the registration form
@@ -394,14 +632,23 @@ async def register_facebook_account(temp_email, sid_token):
 
                         await page.wait_for_timeout(10000)
 
-                        if await page.is_visible("selector-for-success-element"):
-                            logger.info(f"Successfully registered {temp_email}")
+                        # Check if the "Okay" button is present
+                        try:
+                            await page.wait_for_selector(
+                                'a[role="button"]:has-text("Okay")', timeout=10000
+                            )
+                            logger.info("Registration successful. 'Okay' button found.")
                             await browser.close()
+                            logger.info(f"Registration successful {temp_email}.")
                             return True
-                        else:
-                            logger.exception(f"Failed to register {temp_email}")
+                        except TimeoutError:
+                            logger.info(
+                                "Registration not confirmed. 'Okay' button not found."
+                            )
                             await browser.close()
+                            logger.info("Registration not successful")
                             return False
+
                     else:
                         logger.exception(
                             f"Failed to retrieve confirmation code for {temp_email}"
@@ -409,7 +656,7 @@ async def register_facebook_account(temp_email, sid_token):
                         await browser.close()
                         return False
 
-                if page.is_visible('div[aria-label="Continue"][role="button"]'):
+                if await page.is_visible('div[aria-label="Continue"][role="button"]'):
                     logger.info(f"Successfully registered {temp_email}")
                     return True
 
