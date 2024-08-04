@@ -68,7 +68,8 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "fb_reg.wsgi.application"
+# WSGI_APPLICATION = "fb_reg.wsgi.application"
+ASGI_APPLICATION = "fb_reg.asgi.application"
 
 
 # Database
