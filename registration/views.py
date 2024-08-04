@@ -90,42 +90,44 @@ async def connection(temp_email, sid_token, browser_type):
     location = random.choice(locations)
 
     async with async_playwright() as p:
-        if browser_type == "firefox":
-            browser = await p.firefox.launch(
-                proxy={"server": "socks5://127.0.0.1:9050"}, headless=False
-            )
-        elif browser_type == "chromium":
-            browser = await p.chromium.launch(
-                proxy={"server": "socks5://127.0.0.1:9050"}, headless=False
-            )
-        else:  # По умолчанию используем webkit
-            browser = await p.webkit.launch(
-                proxy={"server": "socks5://127.0.0.1:9050"}, headless=False
-            )
-        context = await browser.new_context(
-            user_agent=user_agent,
-            geolocation=location,
-            permissions=["geolocation"],
-            locale="en-US",
-        )
-        page = await context.new_page()
-
-        logger.info(f"Opening Facebook registration page for {temp_email}")
+        # Launch the appropriate browser based on browser_type
+        browser = None
         try:
+            if browser_type == "firefox":
+                browser = await p.firefox.launch(
+                    proxy={"server": "socks5://127.0.0.1:9050"}, headless=False
+                )
+            elif browser_type == "chromium":
+                browser = await p.chromium.launch(
+                    proxy={"server": "socks5://127.0.0.1:9050"}, headless=False
+                )
+            else:  # Default to webkit
+                browser = await p.webkit.launch(
+                    proxy={"server": "socks5://127.0.0.1:9050"}, headless=False
+                )
+
+            context = await browser.new_context(
+                user_agent=user_agent,
+                geolocation=location,
+                permissions=["geolocation"],
+                locale="en-US",
+            )
+            page = await context.new_page()
+
+            logger.info(f"Opening Facebook registration page for {temp_email}")
             await page.goto("https://www.facebook.com/r.php", wait_until="networkidle")
             logger.info("Facebook registration page opened successfully")
+
+            await page.wait_for_timeout(10000)  # Wait a bit after the page loads
+            return await handle_cookies_banner(page, browser, temp_email, sid_token)
+
         except Exception as e:
-            logger.exception("Failed to open Facebook registration page")
-            await browser.close()
+            logger.exception("An error occurred during the connection process")
             return False
 
-        await page.wait_for_timeout(10000)  # Wait a bit after the page loads
-        try:
-            return await handle_cookies_banner(page, browser, temp_email, sid_token)
-        except Exception as e:
-            logger.exception(f"Error: {e}")
-            await browser.close()
-            return False
+        finally:
+            if browser:
+                await browser.close()  # Ensure the browser is closed
 
 
 # Function to simulate typing delay and mouse movement
@@ -352,16 +354,8 @@ async def register_facebook_account_v2(page, browser, temp_email, sid_token) -> 
     """
     logger.info("Function start: register_facebook_account_v2")
     try:
-        try:
-            await page.wait_for_selector(
-                'input[aria-label="First name"]', timeout=120000
-            )
-            logger.info("Registration form loaded. First name input found.")
-        except TimeoutError:
-            logger.exception("Timeout while waiting for registration form.")
-            await page.screenshot(path="logs/form_load_timeout.png")
-            await browser.close()
-            return False
+        await page.wait_for_selector('input[aria-label="First name"]', timeout=120000)
+        logger.info("Registration form loaded. First name input found.")
 
         await human_typing(page, 'input[aria-label="First name"]', fake.first_name())
         await human_typing(page, 'input[aria-label="Last name"]', fake.last_name())
@@ -399,7 +393,6 @@ async def register_facebook_account_v2(page, browser, temp_email, sid_token) -> 
                             'input[aria-label="Email"]', timeout=10000
                         )
                         if email_input:
-                            # await email_input.fill(temp_email)
                             await human_typing(
                                 page, 'input[aria-label="Email"]', temp_email
                             )
@@ -415,6 +408,7 @@ async def register_facebook_account_v2(page, browser, temp_email, sid_token) -> 
                                     'input[aria-label="Password"]',
                                     fake.password(),
                                 )
+
                                 if await click_button(page, next_button, "Next"):
                                     # Click the Save button
                                     if await click_button(
@@ -425,7 +419,6 @@ async def register_facebook_account_v2(page, browser, temp_email, sid_token) -> 
                                         "Save",
                                     ):
                                         # Click the I agree button
-
                                         if await click_button(
                                             page,
                                             await page.wait_for_selector(
@@ -443,9 +436,9 @@ async def register_facebook_account_v2(page, browser, temp_email, sid_token) -> 
                                                 logger.info(
                                                     f"Registration successful: {temp_email}."
                                                 )
-                                                await browser.close()
                                                 return True
 
+                                            # Handle confirmation code input
                                             try:
                                                 continue_button = await page.wait_for_selector(
                                                     'button[type="submit"][value="Continue"]',
@@ -455,8 +448,6 @@ async def register_facebook_account_v2(page, browser, temp_email, sid_token) -> 
                                                 logger.info(
                                                     f"Successfully registered: {temp_email}"
                                                 )
-                                                await browser.close()
-
                                                 return True
                                             except TimeoutError:
                                                 logger.error(
@@ -465,19 +456,17 @@ async def register_facebook_account_v2(page, browser, temp_email, sid_token) -> 
                                                 await page.screenshot(
                                                     path=f"logs/screenshot_{temp_email}.png"
                                                 )
-
-                                                await browser.close()
                                                 logger.info(
                                                     f"Registration not successful: {temp_email}"
                                                 )
                                                 return False
 
     except Exception as e:
-        logger.exception(f"Error during registration {e}")
+        logger.exception(f"Error during registration: {e}")
         await handle_error(page, temp_email)
-
-        await browser.close()
         return False
+    finally:
+        await browser.close()  # Ensure the browser is closed at the end of the function
 
 
 async def get_started_button(page, browser, temp_email, sid_token):
@@ -592,115 +581,80 @@ async def register_facebook_account(page, browser, temp_email, sid_token):
     """
     logger.info("Starting register_facebook_account")
     try:
-
-        try:
-            await page.wait_for_selector('input[name="firstname"]', timeout=120000)
-            logger.info("Registration form loaded.")
-        except TimeoutError:
-            logger.exception("Timeout while waiting for registration form.")
-            await page.screenshot(path="logs/form_load_timeout.png")
-            await browser.close()
-            return
+        await page.wait_for_selector('input[name="firstname"]', timeout=120000)
+        logger.info("Registration form loaded.")
 
         # Fill out the form with human-like actions
-        try:
+        await human_typing(page, 'input[name="firstname"]', fake.first_name())
+        await human_typing(page, 'input[name="lastname"]', fake.last_name())
+        await human_typing(page, 'input[name="reg_email__"]', temp_email)
+        await human_typing(page, 'input[name="reg_passwd__"]', fake.password())
 
-            await human_typing(page, 'input[name="firstname"]', fake.first_name())
-            await human_typing(page, 'input[name="lastname"]', fake.last_name())
-            await human_typing(page, 'input[name="reg_email__"]', temp_email)
-            await human_typing(page, 'input[name="reg_passwd__"]', fake.password())
+        birth_day = str(fake.random_int(min=1, max=28))
+        birth_month = str(fake.random_int(min=1, max=12))
+        birth_year = str(fake.random_int(min=1960, max=2000))
 
-            birth_day = str(fake.random_int(min=1, max=28))
-            birth_month = str(fake.random_int(min=1, max=12))
-            birth_year = str(fake.random_int(min=1960, max=2000))
+        await page.select_option('select[name="birthday_day"]', birth_day)
+        await page.select_option('select[name="birthday_month"]', birth_month)
+        await page.select_option('select[name="birthday_year"]', birth_year)
 
-            await page.select_option('select[name="birthday_day"]', birth_day)
-            await page.select_option('select[name="birthday_month"]', birth_month)
-            await page.select_option('select[name="birthday_year"]', birth_year)
+        logger.info(f"Filled birthday: {birth_day}-{birth_month}-{birth_year}")
 
-            logger.info(f"Filled birthday: {birth_day}-{birth_month}-{birth_year}")
+        logger.info("Waiting for email confirmation field to appear")
+        await page.wait_for_selector(
+            'input[name="reg_email_confirmation__"]', timeout=120000
+        )
+        await human_typing(page, 'input[name="reg_email_confirmation__"]', temp_email)
 
-            logger.info("Waiting for email confirmation field to appear")
-            await page.wait_for_selector(
-                'input[name="reg_email_confirmation__"]', timeout=120000
-            )
-            await human_typing(
-                page, 'input[name="reg_email_confirmation__"]', temp_email
-            )
+        gender = fake.random_element(elements=("1", "2"))
+        await page.wait_for_selector(
+            f'input[name="sex"][value="{gender}"]', state="visible"
+        )
+        await page.check(f'input[name="sex"][value="{gender}"]')
+        logger.info(f"Gender selected: {gender}")
 
-            gender = fake.random_element(elements=("1", "2"))
-            await page.wait_for_selector(
-                f'input[name="sex"][value="{gender}"]', state="visible"
-            )
-            await page.check(f'input[name="sex"][value="{gender}"]')
-            logger.info(f"Gender selected: {gender}")
+        logger.info("Submitting the registration form")
+        await page.click('button[name="websubmit"]')
 
-            logger.info("Submitting the registration form")
-            await page.click('button[name="websubmit"]')
-
-            if await handle_confirmation_code(
-                page,
-                'input[name="code"]',
-                'button[name="confirm"]',
-                sid_token,
-                timeout=30000,
-            ):
-                # Check if the "Okay" button is present
-                try:
-                    await page.wait_for_selector(
-                        'a[role="button"]:has-text("Okay")', timeout=15000
-                    )
-                    logger.info("Registration successful. 'Okay' button found.")
-                    await browser.close()
-                    logger.info(f"Registration successful {temp_email}.")
-                    return True
-                except TimeoutError:
-                    logger.info("Registration not confirmed. 'Okay' button not found.")
-                    await browser.close()
-                    logger.info("Registration not successful")
-                    return False
-
+        if await handle_confirmation_code(
+            page,
+            'input[name="code"]',
+            'button[name="confirm"]',
+            sid_token,
+            timeout=30000,
+        ):
             try:
-                continue_button = await page.wait_for_selector(
-                    'div[aria-label="Continue"][role="button"]', timeout=50000
+                await page.wait_for_selector(
+                    'a[role="button"]:has-text("Okay")', timeout=15000
                 )
-                await continue_button.click()
-
-                logger.info(f"Successfully registered: {temp_email}")
-                await browser.close()
+                logger.info("Registration successful. 'Okay' button found.")
                 return True
-
             except TimeoutError:
-                logger.exception(f"Failed to register {temp_email}")
-                screenshot_path = f"logs/screenshot_{temp_email}.png"
-                await page.screenshot(path=screenshot_path)
-                await browser.close()
+                logger.info("Registration not confirmed. 'Okay' button not found.")
                 return False
 
-        except Exception as e:
-            logger.exception("Error during registration")
-            try:
-                if page and not page.is_closed():
-                    screenshot_path = f"logs/screenshot_{temp_email}.png"
-                    await page.screenshot(path=screenshot_path)
-                    logger.exception(f"Screenshot saved to {screenshot_path}")
-                    return False
-            except Exception as screenshot_error:
-                logger.exception("Failed to take screenshot")
-            await browser.close()
+        try:
+            continue_button = await page.wait_for_selector(
+                'div[aria-label="Continue"][role="button"]', timeout=50000
+            )
+            await continue_button.click()
+            logger.info(f"Successfully registered: {temp_email}")
+            return True
+
+        except TimeoutError:
+            logger.exception(f"Failed to register {temp_email}")
+            await page.screenshot(path=f"logs/screenshot_{temp_email}.png")
             return False
 
     except Exception as e:
         logger.exception("Unexpected error")
-        try:
-            if page and not page.is_closed():
-                screenshot_path = f"logs/screenshot_{temp_email}.png"
-                await page.screenshot(path=screenshot_path)
-                logger.exception(f"Screenshot saved to {screenshot_path}")
-                return False
-        except Exception as screenshot_error:
-            logger.exception("Failed to take screenshot")
+        if page and not page.is_closed():
+            await page.screenshot(path=f"logs/screenshot_{temp_email}.png")
+            logger.exception(f"Screenshot saved to logs/screenshot_{temp_email}.png")
         return False
+
+    finally:
+        await browser.close()  # Ensure the browser is closed at the end of the function
 
 
 def get_temp_email():
