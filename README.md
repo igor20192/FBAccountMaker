@@ -72,7 +72,7 @@ Configure the following settings in your Django project settings:
 2. Start the Django development server:
 
     ```bash
-    python manage.py runserver
+    python run_uvicorn.py
     ```
 
 ### Making API Requests
