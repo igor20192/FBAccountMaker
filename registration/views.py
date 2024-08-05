@@ -85,7 +85,7 @@ async def connection(temp_email, sid_token, browser_type):
         bool: True if the process is successful, False otherwise.
     """
     logger.info("Start Functions: connection")
-    renew_tor_connection()
+    await sync_to_async(renew_tor_connection)()
     user_agent = UserAgent().random
     location = random.choice(locations)
 
@@ -172,7 +172,7 @@ async def handle_confirmation_code(
         )  # Reduced timeout for better responsiveness
         logger.info("Waiting for confirmation code")
         await page.wait_for_timeout(20000)
-        confirmation_code = get_confirmation_code(sid_token)
+        confirmation_code = await sync_to_async(get_confirmation_code)(sid_token)
 
         if confirmation_code:
             logger.info(f"Confirmation code received: {confirmation_code}")
